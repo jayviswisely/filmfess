@@ -1,6 +1,6 @@
 # FilmFess 🎬
 
-Anonymous confessions paired with movies. Inspired by The Unsent Project and SendTheSong.
+Anonymous confessions paired with movies. Inspired by The Unsent Project.
 
 ## Features
 
