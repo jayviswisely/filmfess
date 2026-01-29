@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Film, Heart, Send, Loader2 } from 'lucide-react';
+import { Search, Film, Heart, Send, Loader2, X } from 'lucide-react';
 import { supabase } from './lib/supabase';
 import { searchMovies as searchTMDB } from './lib/tmdb';
 
@@ -9,6 +9,13 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [confessions, setConfessions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedConfession, setSelectedConfession] = useState(null);
+  
+  // Movie search for browse tab
+  const [movieSearchQuery, setMovieSearchQuery] = useState('');
+  const [movieSearchResults, setMovieSearchResults] = useState([]);
+  const [isSearchingBrowseMovies, setIsSearchingBrowseMovies] = useState(false);
+  const [selectedBrowseMovie, setSelectedBrowseMovie] = useState(null);
   
   // New confession form state
   const [newConfession, setNewConfession] = useState({
@@ -23,8 +30,17 @@ function App() {
 
   // Fetch confessions
   useEffect(() => {
-    fetchConfessions();
+    if (searchMode === 'recipient') {
+      fetchConfessions();
+    }
   }, [searchQuery, searchMode]);
+
+  // Fetch confessions when a movie is selected in movie search mode
+  useEffect(() => {
+    if (searchMode === 'movie' && selectedBrowseMovie) {
+      fetchConfessionsByMovie();
+    }
+  }, [selectedBrowseMovie, searchMode]);
 
   const fetchConfessions = async () => {
     setIsLoading(true);
@@ -35,12 +51,8 @@ function App() {
         .order('created_at', { ascending: false })
         .limit(50);
 
-      if (searchQuery) {
-        if (searchMode === 'recipient') {
-          query = query.ilike('recipient_lower', `%${searchQuery.toLowerCase()}%`);
-        } else if (searchMode === 'movie') {
-          query = query.ilike('movie_title', `%${searchQuery}%`);
-        }
+      if (searchQuery && searchMode === 'recipient') {
+        query = query.ilike('recipient_lower', `%${searchQuery.toLowerCase()}%`);
       }
 
       const { data, error } = await query;
@@ -59,7 +71,46 @@ function App() {
     }
   };
 
-  // Search movies with debounce
+  const fetchConfessionsByMovie = async () => {
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('confessions')
+        .select('*')
+        .eq('movie_id', selectedBrowseMovie.id)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching confessions:', error);
+        setConfessions([]);
+      } else {
+        setConfessions(data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching confessions:', error);
+      setConfessions([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Search movies for browse mode with debounce
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      if (movieSearchQuery && searchMode === 'movie') {
+        setIsSearchingBrowseMovies(true);
+        const results = await searchTMDB(movieSearchQuery);
+        setMovieSearchResults(results);
+        setIsSearchingBrowseMovies(false);
+      } else {
+        setMovieSearchResults([]);
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [movieSearchQuery, searchMode]);
+
+  // Search movies for create form with debounce
   useEffect(() => {
     const timer = setTimeout(async () => {
       if (newConfession.movieSearch && !newConfession.selectedMovie) {
@@ -82,6 +133,18 @@ function App() {
       movieSearch: movie.title
     });
     setMovieResults([]);
+  };
+
+  const selectBrowseMovie = (movie) => {
+    setSelectedBrowseMovie(movie);
+    setMovieSearchQuery(movie.title);
+    setMovieSearchResults([]);
+  };
+
+  const clearMovieSelection = () => {
+    setSelectedBrowseMovie(null);
+    setMovieSearchQuery('');
+    setConfessions([]);
   };
 
   const handleSubmitConfession = async (e) => {
@@ -115,7 +178,6 @@ function App() {
 
       if (error) throw error;
 
-      // Success - reset form and switch to browse
       setNewConfession({ message: '', recipient: '', movieSearch: '', selectedMovie: null });
       setActiveTab('browse');
       fetchConfessions();
@@ -132,7 +194,7 @@ function App() {
     <div className="min-h-screen bg-[#F4F1EC]">
       {/* Header */}
       <header className="border-b border-[#B48E6F]/20 bg-white">
-        <div className="max-w-6xl mx-auto px-4 py-8">
+        <div className="max-w-7xl mx-auto px-4 py-8">
           <div className="flex items-center gap-3 mb-4">
             <Film className="w-8 h-8 text-[#B48E6F]" />
             <h1 className="text-4xl font-bold text-[#2E2E2E]">FilmFess</h1>
@@ -145,7 +207,7 @@ function App() {
       </header>
 
       {/* Navigation */}
-      <div className="max-w-6xl mx-auto px-4 py-8">
+      <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="flex gap-3 mb-10">
           <button
             onClick={() => setActiveTab('browse')}
@@ -179,6 +241,7 @@ function App() {
                   onClick={() => {
                     setSearchMode('recipient');
                     setSearchQuery('');
+                    clearMovieSelection();
                   }}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                     searchMode === 'recipient'
@@ -192,6 +255,7 @@ function App() {
                   onClick={() => {
                     setSearchMode('movie');
                     setSearchQuery('');
+                    setConfessions([]);
                   }}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                     searchMode === 'movie'
@@ -203,18 +267,101 @@ function App() {
                 </button>
               </div>
               
-              <div className="relative">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#6B7280]" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder={searchMode === 'recipient' ? 'Search for a name...' : 'Search for a movie...'}
-                  className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-[#2E2E2E] placeholder-[#6B7280] focus:outline-none focus:ring-2 focus:ring-[#B48E6F] focus:border-transparent"
-                />
-              </div>
+              {searchMode === 'recipient' ? (
+                <div className="relative">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#6B7280]" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search for a name..."
+                    className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-[#2E2E2E] placeholder-[#6B7280] focus:outline-none focus:ring-2 focus:ring-[#B48E6F] focus:border-transparent"
+                  />
+                </div>
+              ) : (
+                <div className="relative">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#6B7280]" />
+                  <input
+                    type="text"
+                    value={movieSearchQuery}
+                    onChange={(e) => {
+                      setMovieSearchQuery(e.target.value);
+                      setSelectedBrowseMovie(null);
+                    }}
+                    placeholder="Search for a movie..."
+                    className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-[#2E2E2E] placeholder-[#6B7280] focus:outline-none focus:ring-2 focus:ring-[#B48E6F] focus:border-transparent"
+                  />
+                  
+                  {isSearchingBrowseMovies && (
+                    <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                      <Loader2 className="w-5 h-5 text-[#6B7280] animate-spin" />
+                    </div>
+                  )}
+                  
+                  {movieSearchResults.length > 0 && !selectedBrowseMovie && (
+                    <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-200 rounded-lg overflow-hidden shadow-lg z-10 max-h-80 overflow-y-auto">
+                      {movieSearchResults.map((movie) => (
+                        <button
+                          key={movie.id}
+                          type="button"
+                          onClick={() => selectBrowseMovie(movie)}
+                          className="w-full flex items-center gap-3 p-3 hover:bg-gray-50 transition-colors text-left border-b border-gray-100 last:border-b-0"
+                        >
+                          {movie.posterPath ? (
+                            <img
+                              src={`https://image.tmdb.org/t/p/w92${movie.posterPath}`}
+                              alt={movie.title}
+                              className="w-12 h-16 object-cover rounded"
+                            />
+                          ) : (
+                            <div className="w-12 h-16 bg-gray-100 rounded flex items-center justify-center">
+                              <Film className="w-6 h-6 text-gray-400" />
+                            </div>
+                          )}
+                          <div>
+                            <p className="text-[#2E2E2E] font-medium">{movie.title}</p>
+                            <p className="text-[#6B7280] text-sm">
+                              {movie.releaseDate?.split('-')[0] || 'N/A'}
+                            </p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               
-              {searchQuery && !isLoading && (
+              {selectedBrowseMovie && (
+                <div className="mt-4 flex items-center justify-between p-3 bg-[#B48E6F]/10 border border-[#B48E6F]/20 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    {selectedBrowseMovie.posterPath ? (
+                      <img
+                        src={`https://image.tmdb.org/t/p/w92${selectedBrowseMovie.posterPath}`}
+                        alt={selectedBrowseMovie.title}
+                        className="w-12 h-16 object-cover rounded"
+                      />
+                    ) : (
+                      <div className="w-12 h-16 bg-gray-100 rounded flex items-center justify-center">
+                        <Film className="w-6 h-6 text-gray-400" />
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-[#2E2E2E] font-medium">{selectedBrowseMovie.title}</p>
+                      <p className="text-[#B48E6F] text-sm">
+                        {confessions.length} confession{confessions.length !== 1 ? 's' : ''}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={clearMovieSelection}
+                    className="p-2 hover:bg-white rounded-lg transition-colors"
+                  >
+                    <X className="w-5 h-5 text-[#6B7280]" />
+                  </button>
+                </div>
+              )}
+              
+              {searchMode === 'recipient' && searchQuery && !isLoading && (
                 <p className="mt-3 text-sm text-[#6B7280]">
                   Found {confessions.length} confession{confessions.length !== 1 ? 's' : ''}
                 </p>
@@ -226,18 +373,27 @@ function App() {
               <div className="flex items-center justify-center py-16">
                 <Loader2 className="w-8 h-8 text-[#B48E6F] animate-spin" />
               </div>
+            ) : searchMode === 'movie' && !selectedBrowseMovie ? (
+              <div className="text-center py-16">
+                <Film className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                <p className="text-[#6B7280] text-lg">Search for a movie</p>
+                <p className="text-[#6B7280]/70 text-sm mt-2">
+                  Find confessions paired with your favorite films
+                </p>
+              </div>
             ) : (
-              <div className="grid gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {confessions.length > 0 ? (
                   confessions.map((confession) => (
-                    <div
+                    <button
                       key={confession.id}
-                      className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 hover:shadow-md transition-all group"
+                      onClick={() => setSelectedConfession(confession)}
+                      className="bg-white rounded-xl p-5 shadow-sm border border-gray-100 hover:shadow-md transition-all text-left group"
                     >
-                      <div className="flex gap-6">
+                      <div className="flex gap-4 mb-3">
                         {/* Movie Poster */}
                         <div className="flex-shrink-0">
-                          <div className="w-32 h-48 rounded-lg overflow-hidden bg-gray-100 shadow-sm">
+                          <div className="w-20 h-28 rounded-lg overflow-hidden bg-gray-100 shadow-sm">
                             {confession.movie_poster_path ? (
                               <img
                                 src={`https://image.tmdb.org/t/p/w500${confession.movie_poster_path}`}
@@ -246,45 +402,36 @@ function App() {
                               />
                             ) : (
                               <div className="w-full h-full flex items-center justify-center">
-                                <Film className="w-12 h-12 text-gray-300" />
+                                <Film className="w-8 h-8 text-gray-300" />
                               </div>
                             )}
                           </div>
                         </div>
 
-                        {/* Content */}
+                        {/* Header */}
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between gap-4 mb-3">
-                            <div>
-                              <h3 className="text-lg font-semibold text-[#B48E6F] mb-1">
-                                To {confession.recipient}
-                              </h3>
-                              <p className="text-sm text-[#6B7280]">{confession.movie_title}</p>
-                            </div>
-                            <Heart className="w-5 h-5 text-gray-300 group-hover:text-[#B48E6F] transition-colors" />
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <h3 className="text-base font-semibold text-[#B48E6F] truncate">
+                              To {confession.recipient}
+                            </h3>
+                            <Heart className="w-4 h-4 text-gray-300 group-hover:text-[#B48E6F] transition-colors flex-shrink-0" />
                           </div>
-                          
-                          <p className="text-[#2E2E2E] leading-relaxed mb-4">
-                            {confession.message}
-                          </p>
-                          
-                          <p className="text-xs text-[#6B7280]">
-                            {new Date(confession.created_at).toLocaleDateString('en-US', {
-                              year: 'numeric',
-                              month: 'long',
-                              day: 'numeric'
-                            })}
-                          </p>
+                          <p className="text-xs text-[#6B7280] truncate">{confession.movie_title}</p>
                         </div>
                       </div>
-                    </div>
+                      
+                      {/* Message Preview - 3 lines max */}
+                      <p className="text-[#2E2E2E] text-sm leading-relaxed line-clamp-3">
+                        {confession.message}
+                      </p>
+                    </button>
                   ))
                 ) : (
-                  <div className="text-center py-16">
+                  <div className="col-span-full text-center py-16">
                     <Film className="w-16 h-16 text-gray-300 mx-auto mb-4" />
                     <p className="text-[#6B7280] text-lg">No confessions yet</p>
                     <p className="text-[#6B7280]/70 text-sm mt-2">
-                      {searchQuery ? 'Try a different search term' : 'Be the first to share your story'}
+                      {searchQuery || selectedBrowseMovie ? 'Try a different search' : 'Be the first to share your story'}
                     </p>
                   </div>
                 )}
@@ -303,7 +450,6 @@ function App() {
               </p>
 
               <form onSubmit={handleSubmitConfession} className="space-y-6">
-                {/* Recipient */}
                 <div>
                   <label className="block text-sm font-medium text-[#2E2E2E] mb-2">
                     To
@@ -317,7 +463,6 @@ function App() {
                   />
                 </div>
 
-                {/* Message */}
                 <div>
                   <label className="block text-sm font-medium text-[#2E2E2E] mb-2">
                     Your Message
@@ -335,7 +480,6 @@ function App() {
                   </p>
                 </div>
 
-                {/* Movie Search */}
                 <div>
                   <label className="block text-sm font-medium text-[#2E2E2E] mb-2">
                     Choose a Movie
@@ -410,7 +554,6 @@ function App() {
                   )}
                 </div>
 
-                {/* Submit */}
                 <button
                   type="submit"
                   disabled={isSubmitting}
@@ -433,6 +576,63 @@ function App() {
           </div>
         )}
       </div>
+
+      {/* Confession Modal */}
+      {selectedConfession && (
+        <div 
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setSelectedConfession(null)}
+        >
+          <div 
+            className="bg-white rounded-2xl p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-start mb-6">
+              <div className="flex items-center gap-4">
+                {selectedConfession.movie_poster_path ? (
+                  <img
+                    src={`https://image.tmdb.org/t/p/w200${selectedConfession.movie_poster_path}`}
+                    alt={selectedConfession.movie_title}
+                    className="w-24 h-36 object-cover rounded-lg shadow-md"
+                  />
+                ) : (
+                  <div className="w-24 h-36 bg-gray-100 rounded-lg flex items-center justify-center">
+                    <Film className="w-12 h-12 text-gray-300" />
+                  </div>
+                )}
+                <div>
+                  <h2 className="text-2xl font-bold text-[#B48E6F] mb-1">
+                    To {selectedConfession.recipient}
+                  </h2>
+                  <p className="text-[#6B7280]">{selectedConfession.movie_title}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedConfession(null)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-6 h-6 text-[#6B7280]" />
+              </button>
+            </div>
+
+            <div className="prose prose-lg max-w-none">
+              <p className="text-[#2E2E2E] leading-relaxed whitespace-pre-wrap">
+                {selectedConfession.message}
+              </p>
+            </div>
+
+            <div className="mt-8 pt-6 border-t border-gray-200">
+              <p className="text-sm text-[#6B7280]">
+                Posted on {new Date(selectedConfession.created_at).toLocaleDateString('en-US', {
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric'
+                })}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
