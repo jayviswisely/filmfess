@@ -413,7 +413,6 @@ function App() {
                             <h3 className="text-base font-semibold text-[#B48E6F] truncate">
                               To {confession.recipient}
                             </h3>
-                            <Heart className="w-4 h-4 text-gray-300 group-hover:text-[#B48E6F] transition-colors flex-shrink-0" />
                           </div>
                           <p className="text-xs text-[#6B7280] truncate">{confession.movie_title}</p>
                         </div>
