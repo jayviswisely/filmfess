@@ -200,8 +200,7 @@ function App() {
             <h1 className="text-4xl font-bold text-[#2E2E2E]">FilmFess</h1>
           </div>
           <p className="text-[#6B7280] text-base max-w-2xl">
-            Anonymous confessions paired with the movies that capture how we feel. 
-            Share your untold stories through cinema.
+            An anonymous confession platform where messages are paired with movies to capture feelings, memories, and vibes, because some emotions are cinematic.
           </p>
         </div>
       </header>
